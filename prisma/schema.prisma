@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String        @id
+  name          String
+  email         String
+  emailVerified Boolean
+  image         String?
+  createdAt     DateTime
+  updatedAt     DateTime
+  sessions      Session[]
+  accounts      Account[]
+  workflows     Workflow[]
+  workflowRuns  WorkflowRun[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime
+  updatedAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+
+  @@map("verification")
+}
+
+model Workflow {
+  id                String         @id @default(uuid())
+  userId            String
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String         @default("Untitled Workflow")
+  description       String?
+  // full react flow snapshot used to restore the canvas exactly
+  reactFlowSnapshot Json
+  isPublic          Boolean        @default(false)
+  version           Int            @default(1)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  nodes             WorkflowNode[]
+  edges             WorkflowEdge[]
+  runs              WorkflowRun[]
+
+  @@index([userId])
+  @@map("workflow")
+}
+
+model WorkflowNode {
+  id         String          @id @default(uuid())
+  workflowId String
+  workflow   Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  // react flow nodeId
+  rfNodeId   String
+  type       NodeType
+  positionX  Float
+  positionY  Float
+  // node specific config shape varies by NodeType
+  //   TEXT:          { text: string }
+  //   UPLOAD_IMAGE:  { fileUrl: string, fileName: string }
+  //   UPLOAD_VIDEO:  { fileUrl: string, fileName: string }
+  //   RUN_LLM:       { model: string, systemPrompt?: string, userMessage?: string }
+  //   CROP_IMAGE:    { xPercent: number, yPercent: number, widthPercent: number, heightPercent: number }
+  //   EXTRACT_FRAME: { timestamp: string }  e.g. "30" (seconds) or "50%" (percentage)
+  config     Json
+  label      String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  executions NodeExecution[]
+
+  // same rfNodeId can't appear twice in same workflow
+  @@unique([workflowId, rfNodeId])
+  @@index([workflowId])
+  @@map("workflow_node")
+}
+
+model WorkflowEdge {
+  id             String   @id @default(uuid())
+  workflowId     String
+  workflow       Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  // the react flow edge id
+  rfEdgeId       String
+  // rfNodeId of the source node
+  sourceRfNodeId String
+  sourceHandle   String
+  // rfNodeId of the target node
+  targetRfNodeId String
+  targetHandle   String
+  createdAt      DateTime @default(now())
+
+  @@unique([workflowId, rfEdgeId])
+  @@index([workflowId])
+  @@map("workflow_edge")
+}
+
+model WorkflowRun {
+  id               String          @id @default(uuid())
+  workflowId       String
+  workflow         Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scope            RunScope
+  status           RunStatus       @default(PENDING)
+  // only populated for partial and single runs
+  // stores rfNodeId[] of included nodes, e.g. ["node-1", "node-3"]
+  selectedNodeIds  Json?
+  // trigger.dev top-level run id used to poll status of the whole execution
+  triggerRunId     String?
+  startedAt        DateTime        @default(now())
+  completedAt      DateTime?
+  durationMs       Int?
+  // snapshot of the exact workflow graph that was run.
+  // the user may edit the workflow after running this preserves what actually executed.
+  // same shape as Workflow.reactFlowSnapshot
+  workflowSnapshot Json
+  createdAt        DateTime        @default(now())
+  nodeExecution    NodeExecution[]
+
+  @@index([workflowId])
+  @@index([userId])
+  @@map("workflow_run")
+}
+
+model NodeExecution {
+  id             String              @id @default(uuid())
+  workflowRunId  String
+  workflowNodeId String?
+  // denormalized copies always available even if workflowNode is later deleted
+  rfNodeId       String
+  nodeType       NodeType
+  status         NodeExecutionStatus @default(PENDING)
+  // trigger.dev task id for this specific node's background job
+  // different from WorkflowRun.triggerRunId which is the parent job
+  triggerTaskId  String?
+  //   fully resolved inputs fed into this node (values from connected upstream nodes merged in).
+  //   shape matches WorkflowNode.config but with upstream values resolved:
+  //   TEXT:          { text: string }
+  //   UPLOAD_IMAGE:  { fileUrl: string, fileName: string }
+  //   UPLOAD_VIDEO:  { fileUrl: string, fileName: string }
+  //   RUN_LLM:       { model: string, systemPrompt?: string, userMessage: string, imageUrls: string[] }
+  //   CROP_IMAGE:    { imageUrl: string, xPercent: number, yPercent: number, widthPercent: number, heightPercent: number }
+  //   EXTRACT_FRAME: { videoUrl: string, timestamp: string }
+  inputs         Json?
+  //   what this node produced fed into downstream nodes that depend on it.
+  //   TEXT:          { text: string }
+  //   UPLOAD_IMAGE:  { imageUrl: string }
+  //   UPLOAD_VIDEO:  { videoUrl: string }
+  //   RUN_LLM:       { text: string }
+  //   CROP_IMAGE:    { imageUrl: string }
+  //   EXTRACT_FRAME: { imageUrl: string }
+  outputs        Json?
+  errorMessage   String?
+  errorStack     String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  durationMs     Int?
+  createdAt      DateTime            @default(now())
+  workflowNode   WorkflowNode?       @relation(fields: [workflowNodeId], references: [id], onDelete: SetNull)
+  workflowRun    WorkflowRun         @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+
+  @@index([workflowRunId])
+  @@index([workflowNodeId])
+  @@map("node_execution")
+}
+
+enum NodeType {
+  TEXT
+  UPLOAD_IMAGE
+  UPLOAD_VIDEO
+  RUN_LLM
+  CROP_IMAGE
+  EXTRACT_FRAME
+}
+
+enum RunScope {
+  FULL // entire workflow ran
+  PARTIAL // user selected multiple nodes
+  SINGLE // user ran one node
+}
+
+enum RunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL_SUCCESS // some nodes failed, some succeeded
+  FAILED
+  CANCELLED
+}
+
+enum NodeExecutionStatus {
+  PENDING
+  RUNNING // trigger.dev task is actively executing
+  SUCCESS
+  FAILED
+  SKIPPED // node was in workflow but not in selected scope
+}
