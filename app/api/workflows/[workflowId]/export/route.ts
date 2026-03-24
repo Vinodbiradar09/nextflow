@@ -1,11 +1,11 @@
 import { requireSession } from "@/lib/auth/server/require-session";
 import { NotFoundError, ForbiddenError } from "@/lib/error/error";
 import { _Error } from "@/lib/response/api-response";
-import { workflowIdParams } from "@/lib/utils";
+import { WorkflowIdParams } from "@/lib/utils";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db/prisma";
 
-export async function GET(req: NextRequest, { params }: workflowIdParams) {
+export async function GET(req: NextRequest, { params }: WorkflowIdParams) {
   try {
     const session = await requireSession();
     const { workflowId } = await params;

@@ -1,7 +1,7 @@
 import { _Error, NextFlowApiResponse } from "@/lib/response/api-response";
 import { requireSession } from "@/lib/auth/server/require-session";
 import { ZodUpdateWorkflow } from "@/lib/zod/workflow.schema";
-import { workflowIdParams } from "@/lib/utils";
+import { WorkflowIdParams } from "@/lib/utils";
 import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db/prisma";
@@ -11,7 +11,7 @@ import {
   ForbiddenError,
 } from "@/lib/error/error";
 
-export async function GET(req: NextRequest, { params }: workflowIdParams) {
+export async function GET(req: NextRequest, { params }: WorkflowIdParams) {
   try {
     const session = await requireSession();
     const { workflowId } = await params;
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest, { params }: workflowIdParams) {
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: workflowIdParams) {
+export async function DELETE(req: NextRequest, { params }: WorkflowIdParams) {
   try {
     const session = await requireSession();
     const { workflowId } = await params;
@@ -63,7 +63,7 @@ export async function DELETE(req: NextRequest, { params }: workflowIdParams) {
   }
 }
 
-export async function PATCH(req: NextRequest, { params }: workflowIdParams) {
+export async function PATCH(req: NextRequest, { params }: WorkflowIdParams) {
   try {
     const session = await requireSession();
     const { workflowId } = await params;
