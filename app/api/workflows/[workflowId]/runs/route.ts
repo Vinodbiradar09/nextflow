@@ -1,0 +1,66 @@
+import { _Error, NextFlowApiResponse } from "@/lib/response/api-response";
+import { requireSession } from "@/lib/auth/server/require-session";
+import { NotFoundError, ForbiddenError } from "@/lib/error/error";
+import { workflowIdParams } from "@/lib/utils";
+import { NextRequest } from "next/server";
+import { db } from "@/lib/db/prisma";
+
+export async function GET(req: NextRequest, { params }: workflowIdParams) {
+  try {
+    const session = await requireSession();
+    const { workflowId } = await params;
+    const workflow = await db.workflow.findUnique({
+      where: {
+        id: workflowId,
+      },
+    });
+    if (!workflow) {
+      throw new NotFoundError("workflow not found");
+    }
+    if (workflow.userId !== session.user.id) {
+      throw new ForbiddenError();
+    }
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
+    const limit = Math.min(50, parseInt(searchParams.get("limit") ?? "20"));
+    const skip = (page - 1) * limit;
+    const [runs, total] = await Promise.all([
+      db.workflowRun.findMany({
+        where: { workflowId },
+        orderBy: { startedAt: "desc" },
+        skip,
+        take: limit,
+        include: {
+          nodeExecution: {
+            orderBy: { createdAt: "asc" },
+            select: {
+              id: true,
+              rfNodeId: true,
+              nodeType: true,
+              status: true,
+              inputs: true,
+              outputs: true,
+              errorMessage: true,
+              durationMs: true,
+              startedAt: true,
+              completedAt: true,
+            },
+          },
+        },
+      }),
+      db.workflowRun.count({ where: { workflowId } }),
+    ]);
+
+    return NextFlowApiResponse(200, "runs accessed successfully", {
+      runs,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (e) {
+    return _Error(e);
+  }
+}
