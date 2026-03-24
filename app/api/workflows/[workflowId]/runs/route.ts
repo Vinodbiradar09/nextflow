@@ -1,6 +1,6 @@
 import { _Error, NextFlowApiResponse } from "@/lib/response/api-response";
 import { requireSession } from "@/lib/auth/server/require-session";
-import { NotFoundError, ForbiddenError } from "@/lib/error/error";
+import { getOwnedWorkflow } from "@/lib/workflow";
 import { WorkflowIdParams } from "@/lib/utils";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db/prisma";
@@ -9,17 +9,7 @@ export async function GET(req: NextRequest, { params }: WorkflowIdParams) {
   try {
     const session = await requireSession();
     const { workflowId } = await params;
-    const workflow = await db.workflow.findUnique({
-      where: {
-        id: workflowId,
-      },
-    });
-    if (!workflow) {
-      throw new NotFoundError("workflow not found");
-    }
-    if (workflow.userId !== session.user.id) {
-      throw new ForbiddenError();
-    }
+    await getOwnedWorkflow(workflowId, session.user.id);
     const { searchParams } = new URL(req.url);
     const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
     const limit = Math.min(50, parseInt(searchParams.get("limit") ?? "20"));

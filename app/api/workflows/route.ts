@@ -1,7 +1,7 @@
 import { _Error, NextFlowApiResponse } from "@/lib/response/api-response";
 import { requireSession } from "@/lib/auth/server/require-session";
 import { ZodCreateWorkflow } from "@/lib/zod/workflow.schema";
-import { ValidationError } from "@/lib/error/error";
+import { validateRequest } from "@/lib/workflow";
 import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db/prisma";
@@ -37,17 +37,12 @@ export async function POST(req: NextRequest) {
   try {
     const session = await requireSession();
     const body = await req.json();
-    const data = ZodCreateWorkflow.safeParse(body);
-    if (!data.success) {
-      throw new ValidationError(
-        data.error.issues[0]?.message || "invalid request data",
-      );
-    }
+    const data = validateRequest(ZodCreateWorkflow, body);
     const workflow = await db.workflow.create({
       data: {
         userId: session.user.id,
-        name: data.data.name,
-        description: data.data.description,
+        name: data.name,
+        description: data.description,
         reactFlowSnapshot: {
           nodes: [],
           edges: [],

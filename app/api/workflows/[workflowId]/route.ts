@@ -1,15 +1,12 @@
 import { _Error, NextFlowApiResponse } from "@/lib/response/api-response";
 import { requireSession } from "@/lib/auth/server/require-session";
+import { getOwnedWorkflow, validateRequest } from "@/lib/workflow";
+import { NotFoundError, ForbiddenError } from "@/lib/error/error";
 import { ZodUpdateWorkflow } from "@/lib/zod/workflow.schema";
 import { WorkflowIdParams } from "@/lib/utils";
 import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db/prisma";
-import {
-  NotFoundError,
-  ValidationError,
-  ForbiddenError,
-} from "@/lib/error/error";
 
 export async function GET(req: NextRequest, { params }: WorkflowIdParams) {
   try {
@@ -30,7 +27,7 @@ export async function GET(req: NextRequest, { params }: WorkflowIdParams) {
     if (workflow.userId !== session.user.id) {
       throw new ForbiddenError();
     }
-    return NextFlowApiResponse(200, "workflow accessed successfully");
+    return NextFlowApiResponse(200, "workflow accessed successfully", workflow);
   } catch (e) {
     return _Error(e);
   }
@@ -40,20 +37,10 @@ export async function DELETE(req: NextRequest, { params }: WorkflowIdParams) {
   try {
     const session = await requireSession();
     const { workflowId } = await params;
-    const workflow = await db.workflow.findUnique({
-      where: {
-        id: workflowId,
-      },
-    });
-    if (!workflow) {
-      throw new NotFoundError("workflow not found");
-    }
-    if (workflow.userId !== session.user.id) {
-      throw new ForbiddenError();
-    }
+    const workflow = await getOwnedWorkflow(workflowId, session.user.id);
     await db.workflow.delete({
       where: {
-        id: workflowId,
+        id: workflowId ?? workflow.id,
       },
     });
 
@@ -67,26 +54,10 @@ export async function PATCH(req: NextRequest, { params }: WorkflowIdParams) {
   try {
     const session = await requireSession();
     const { workflowId } = await params;
-    const workflow = await db.workflow.findUnique({
-      where: {
-        id: workflowId,
-      },
-    });
-    if (!workflow) {
-      throw new NotFoundError("workflow not found");
-    }
-    if (workflow.userId !== session.user.id) {
-      throw new ForbiddenError();
-    }
+    await getOwnedWorkflow(workflowId, session.user.id);
     const body = await req.json();
-    const data = ZodUpdateWorkflow.safeParse(body);
-    if (!data.success) {
-      const error = data.error.issues
-        .map((issue) => `${issue.path.join(".")}:${issue.message}`)
-        .join("; ");
-      throw new ValidationError(error);
-    }
-    const { reactFlowSnapshot, ...rest } = data.data;
+    const data = validateRequest(ZodUpdateWorkflow, body);
+    const { reactFlowSnapshot, ...rest } = data;
     const updated = await db.$transaction(async (tx) => {
       const updatedWorkflow = await tx.workflow.update({
         where: {
