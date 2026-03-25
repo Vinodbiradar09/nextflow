@@ -39,4 +39,32 @@ const validateRequest = <T>(schema: z.ZodSchema<T>, body: unknown): T => {
   return data.data;
 };
 
-export { getOwnedWorkflow, validateRequest };
+const getOwnedWorkflowWithEdgesAndNodes = async (
+  workflowId: string,
+  userId: string,
+) => {
+  if (!workflowId || !userId) {
+    throw new ValidationError("missing workflowId and userId");
+  }
+  const workflow = await db.workflow.findUnique({
+    where: {
+      id: workflowId,
+    },
+    include: {
+      nodes: true,
+      edges: true,
+    },
+  });
+  if (!workflow) {
+    throw new NotFoundError("workflow not found");
+  }
+
+  if (workflow.userId !== userId) {
+    throw new ForbiddenError(
+      "You do not have permission to access this workflow.",
+    );
+  }
+  return workflow;
+};
+
+export { getOwnedWorkflow, validateRequest, getOwnedWorkflowWithEdgesAndNodes };
